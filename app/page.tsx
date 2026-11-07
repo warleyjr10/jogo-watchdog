@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useJogo } from '@/lib/useJogo'
 import { usePresenca } from '@/lib/usePresenca'
-import { SERVICOS, NOME, CONSERTO_WD, chaveReacao, chaveTap, foraDoAr, type Svc, type Tap } from '@/lib/game'
+import { SERVICOS, NOME, CONSERTO_WD, PENAL_ERRO_MS, chaveReacao, chaveTap, fmtS, foraDoAr, placarReacao, type Svc, type Tap } from '@/lib/game'
 
 const KEY = 'congresso-jogo-participante'
 
@@ -109,13 +109,18 @@ export default function Participante() {
       else if (res === 'wd') {
         const ms = j.data?.ms ?? 0
         const w = jogo?.estado.wd
+        let wdMs = CONSERTO_WD
         if (w) {
           const rel = agora() - w.t0
           const e = w.eventos.find((x) => x.s === s && x.at <= rel && !locaisWd[chaveReacao(x.i, id)] && jogo?.reacoes[chaveReacao(x.i, id)] === undefined)
-          if (e) setLocaisWd((p) => ({ ...p, [chaveReacao(e.i, id)]: ms }))
+          if (e) {
+            wdMs = e.r ?? CONSERTO_WD
+            setLocaisWd((p) => ({ ...p, [chaveReacao(e.i, id)]: ms }))
+          }
         }
-        avisar(`Você: ${(ms / 1000).toFixed(1).replace('.', ',')} s. Watchdog: ${(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s`)
-      } else if (res === 'penal') avisar('-5: esse serviço está no ar')
+        avisar(`Você: ${fmtS(ms)} s. Watchdog: ${fmtS(wdMs, 2)} s`)
+      } else if (res === 'erro-wd') avisar(`Esse serviço está no ar: +${fmtS(PENAL_ERRO_MS)} s de penalidade`)
+      else if (res === 'penal') avisar('-5: esse serviço está no ar')
       else if (res === 'perdeu') {
         marcarLocal(s)
         avisar('Outra pessoa foi mais rápida')
@@ -234,7 +239,7 @@ export default function Participante() {
       <main className="pg">
         {cab}
         <h2>Agora com Watchdog</h2>
-        <p className="s">Tente levantar os serviços na mão como antes. Olhe o telão: o Watchdog levanta sozinho em {(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s. Sem pontos nesta rodada, é só para comparar.</p>
+        <p className="s">Tente levantar os serviços na mão como antes. Olhe o telão: o Watchdog levanta sozinho em até {fmtS(CONSERTO_WD, 2)} s. Vale o menor tempo médio de reação: não toque em serviço no ar (+{fmtS(PENAL_ERRO_MS)} s).</p>
         <div className="pill">
           <span>Tempo</span>
           <b>{Math.max(0, Math.ceil((estado.wd.dur - relw) / 1000))} s</b>
@@ -258,12 +263,17 @@ export default function Participante() {
   if (estado.estagio === 'end') {
     const ordem = [...jogo.jogadores].sort((a, b) => b.pontos - a.pontos)
     const pos = ordem.findIndex((j) => j.id === id) + 1
+    const reac = estado.wd ? placarReacao(estado.wd, jogo.reacoes, jogo.erros, jogo.jogadores, estado.wd.dur) : []
+    const posR = reac.findIndex((j) => j.id === id) + 1
+    const minha = reac.find((j) => j.id === id)
     return (
       <main className="pg">
         {cab}
         <div className="grow" />
         <h2>{pos ? `Você ficou em ${pos}º` : 'Fim de jogo'}</h2>
-        <p className="s">Com {pontos} pontos. Obrigado por jogar!</p>
+        <p className="s">
+          Com {pontos} pontos.{minha ? ` Reação média de ${fmtS(minha.media)} s, ${posR}º no tempo de reação.` : ''} Obrigado por jogar!
+        </p>
         <div className="grow" />
       </main>
     )

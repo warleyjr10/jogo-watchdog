@@ -3,7 +3,38 @@ import { Suspense, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import LinkQR from '@/components/Link'
 import { useJogo } from '@/lib/useJogo'
-import { SERVICOS, NOME, CONTAGEM, chaveTap, foraDoAr, segundosFora, CONSERTO_WD, type Jogo, type Jogador } from '@/lib/game'
+import { SERVICOS, NOME, CONTAGEM, chaveTap, fmtS, foraDoAr, mediaWatchdog, placarReacao, segundosFora, CONSERTO_WD, WD_MIN, TETO_REACAO_MS, PENAL_ERRO_MS, type Jogo, type Jogador, type PlacarWd } from '@/lib/game'
+
+function RankingReacao({ lista, wdMedia }: { lista: PlacarWd[]; wdMedia: number }) {
+  const r = lista.slice(0, 5)
+  const melhor = Math.min(wdMedia, r[0]?.media ?? wdMedia)
+  return (
+    <div className="rk">
+      <h3>Reação média</h3>
+      <div>
+        <p>
+          <span>Watchdog</span>
+          <b>{fmtS(wdMedia, 2)} s</b>
+        </p>
+        <div className="b">
+          <i style={{ width: `${(melhor / wdMedia) * 100}%` }} />
+        </div>
+      </div>
+      {r.length === 0 && <div>Aguardando os primeiros toques</div>}
+      {r.map((p) => (
+        <div key={p.id}>
+          <p>
+            <span>{p.nome}</span>
+            <b>{fmtS(p.media)} s</b>
+          </p>
+          <div className="b">
+            <i style={{ width: `${(melhor / p.media) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function Ranking({ jogadores }: { jogadores: Jogador[] }) {
   const r = [...jogadores].sort((a, b) => b.pontos - a.pontos).slice(0, 5)
@@ -49,12 +80,21 @@ function Telao() {
   let titulo = 'Plantão do SMB'
   let sub = ''
   let corpo: React.ReactNode = null
-  const ranking = true
+  let ranking: 'pontos' | 'reacao' | null = 'pontos'
+  let listaR: PlacarWd[] = []
+  let wdMedia = CONSERTO_WD
 
   if (jogo) {
     const j: Jogo = jogo
     const nj = j.jogadores.length
     const { estado } = j
+    if (estado.wd) {
+      const relw = t - estado.wd.t0
+      listaR = placarReacao(estado.wd, j.reacoes ?? {}, j.erros ?? {}, j.jogadores, relw)
+      wdMedia = mediaWatchdog(estado.wd, relw)
+    }
+    if (estado.estagio === 'wd') ranking = 'reacao'
+    if (estado.estagio === 'end') ranking = null
     if (estado.estagio === 'lobby') {
       sub = `${nj} ${nj === 1 ? 'jogador' : 'jogadores'} na sala`
       corpo = (
@@ -87,7 +127,7 @@ function Telao() {
       } else {
         feed = r.eventos
           .filter((e) => e.at <= rel)
-          .flatMap((e) => [{ t: e.at, s: `${NOME[e.s]} caiu` }, ...(rel >= e.at + CONSERTO_WD ? [{ t: e.at + CONSERTO_WD, s: `Watchdog recuperou ${NOME[e.s]} em ${(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s` }] : [])])
+          .flatMap((e) => [{ t: e.at, s: `${NOME[e.s]} caiu` }, ...(rel >= e.at + (e.r ?? CONSERTO_WD) ? [{ t: e.at + (e.r ?? CONSERTO_WD), s: `Watchdog recuperou ${NOME[e.s]} em ${fmtS(e.r ?? CONSERTO_WD, 2)} s` }] : [])])
           .sort((a, b) => b.t - a.t)
           .slice(0, 5)
           .map((x) => x.s)
@@ -100,11 +140,6 @@ function Telao() {
       const durw = estado.wd ? Math.max(1, Math.min(t - estado.wd.t0, estado.wd.dur)) : 1
       const p1 = r1 ? Math.round((segundosFora('r1', r1, j.taps, t - r1.t0) * 1000 * 100) / dur1) : 0
       const p2 = estado.wd ? Math.round((segundosFora('wd', estado.wd, j.taps, t - estado.wd.t0) * 1000 * 100) / durw) : 0
-      // Reações humanas na rodada com Watchdog (tempo entre a queda e o toque da pessoa).
-      const reac = Object.entries(j.reacoes ?? {})
-      const reacMs = reac.map(([, v]) => v)
-      const melhor = reac.length ? reac.reduce((a, b) => (b[1] < a[1] ? b : a)) : null
-      const mediaMs = reacMs.length ? reacMs.reduce((a, b) => a + b, 0) / reacMs.length : 0
       corpo = (
         <div className="main">
           {comeca ? (
@@ -140,12 +175,10 @@ function Telao() {
             {modo === 'wd' && (
               <div className="num">
                 <small>Tempo para levantar uma queda</small>
-                <b>{(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s</b>
+                <b>{fmtS(wdMedia, 2)} s</b>
                 <em>
-                  Watchdog.{' '}
-                  {melhor
-                    ? `Melhor humano: ${(melhor[1] / 1000).toFixed(1).replace('.', ',')} s (${nomes.get(melhor[0].split(':').slice(1).join(':')) ?? 'alguém'}). Média humana: ${(mediaMs / 1000).toFixed(1).replace('.', ',')} s`
-                    : 'Humanos: aguardando toques'}
+                  Watchdog, em média (cada queda leva de {fmtS(WD_MIN, 2)} a {fmtS(CONSERTO_WD, 2)} s).{' '}
+                  {listaR[0] ? `Melhor humano: ${fmtS(listaR[0].media)} s (${listaR[0].nome}).` : 'Humanos: aguardando toques'}
                 </em>
               </div>
             )}
@@ -159,16 +192,36 @@ function Telao() {
       sub = 'Obrigado por jogar'
       corpo = (
         <div className="main">
-          <div className="pod">
-            {[1, 0, 2].map((i) =>
-              r[i] ? (
-                <div key={r[i].id} className={`p${i + 1}`}>
-                  <b>{i + 1}º</b>
-                  <span>{r[i].nome}</span>
-                  <em>{r[i].pontos} pts</em>
-                </div>
-              ) : null,
-            )}
+          <div className="duas">
+            <div>
+              <h3>Mais pontos (rodada sem Watchdog)</h3>
+              <div className="pod">
+                {[1, 0, 2].map((i) =>
+                  r[i] ? (
+                    <div key={r[i].id} className={`p${i + 1}`}>
+                      <b>{i + 1}º</b>
+                      <span>{r[i].nome}</span>
+                      <em>{r[i].pontos} pts</em>
+                    </div>
+                  ) : null,
+                )}
+              </div>
+            </div>
+            <div>
+              <h3>Menor tempo médio de reação (rodada com Watchdog)</h3>
+              <div className="pod">
+                {[1, 0, 2].map((i) =>
+                  listaR[i] ? (
+                    <div key={listaR[i].id} className={`p${i + 1}`}>
+                      <b>{i + 1}º</b>
+                      <span>{listaR[i].nome}</span>
+                      <em>{fmtS(listaR[i].media)} s</em>
+                    </div>
+                  ) : null,
+                )}
+              </div>
+              <p className="ref">Watchdog: {fmtS(wdMedia, 2)} s em média. Tempo de quem não levantou a queda conta {fmtS(TETO_REACAO_MS)} s, e cada toque errado soma {fmtS(PENAL_ERRO_MS)} s.</p>
+            </div>
           </div>
         </div>
       )
@@ -191,9 +244,10 @@ function Telao() {
       </div>
       {semRedis && <div className="aviso">Redis não configurado: o jogo fica só na memória do servidor e pode falhar. Conecte o Redis no projeto da Vercel.</div>}
       {erro && <div className="aviso">{erro}</div>}
-      <div className="wb">
+      <div className="wb" style={ranking === null ? { gridTemplateColumns: '1fr' } : undefined}>
         {corpo}
-        {ranking && jogo && <Ranking jogadores={jogo.jogadores} />}
+        {ranking === 'pontos' && jogo && <Ranking jogadores={jogo.jogadores} />}
+        {ranking === 'reacao' && jogo && <RankingReacao lista={listaR} wdMedia={wdMedia} />}
       </div>
       {host && (
         <div className="hostbar">

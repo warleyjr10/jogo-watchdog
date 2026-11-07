@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
     const relw = agora - estado.wd.t0
     if (relw < 0 || relw > estado.wd.dur) return ok({ resultado: 'fora' as const })
     const pendw = estado.wd.eventos.filter((e) => e.s === p.data.s && e.at <= relw && b[`w:${chaveReacao(e.i, p.data.id)}`] === undefined)
-    if (pendw.length === 0) return ok({ resultado: 'fora' as const })
+    if (pendw.length === 0) {
+      await store.hincrby(H, `x:${p.data.id}`, 1) // toque em serviço que está no ar: penaliza o tempo médio
+      invalidar()
+      return ok({ resultado: 'erro-wd' as const })
+    }
     const ev = pendw[0]
     const ms = relw - ev.at
     await store.hsetnx(H, `w:${chaveReacao(ev.i, p.data.id)}`, String(ms))
