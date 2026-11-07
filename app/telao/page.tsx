@@ -87,7 +87,7 @@ function Telao() {
       } else {
         feed = r.eventos
           .filter((e) => e.at <= rel)
-          .flatMap((e) => [{ t: e.at, s: `${NOME[e.s]} caiu` }, ...(rel >= e.at + CONSERTO_WD ? [{ t: e.at + CONSERTO_WD, s: `Watchdog recuperou ${NOME[e.s]} sozinho` }] : [])])
+          .flatMap((e) => [{ t: e.at, s: `${NOME[e.s]} caiu` }, ...(rel >= e.at + CONSERTO_WD ? [{ t: e.at + CONSERTO_WD, s: `Watchdog recuperou ${NOME[e.s]} em ${(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s` }] : [])])
           .sort((a, b) => b.t - a.t)
           .slice(0, 5)
           .map((x) => x.s)
@@ -95,6 +95,16 @@ function Telao() {
       const r1 = estado.r1
       const s1 = r1 ? Math.round(segundosFora('r1', r1, j.taps, t - r1.t0)) : 0
       const s2 = estado.wd ? Math.round(segundosFora('wd', estado.wd, j.taps, t - estado.wd.t0)) : 0
+      // Comparação justa: as rodadas têm durações diferentes, então o destaque é a porcentagem do tempo fora do ar.
+      const dur1 = r1 ? Math.max(1, Math.min(t - r1.t0, r1.dur)) : 1
+      const durw = estado.wd ? Math.max(1, Math.min(t - estado.wd.t0, estado.wd.dur)) : 1
+      const p1 = r1 ? Math.round((segundosFora('r1', r1, j.taps, t - r1.t0) * 1000 * 100) / dur1) : 0
+      const p2 = estado.wd ? Math.round((segundosFora('wd', estado.wd, j.taps, t - estado.wd.t0) * 1000 * 100) / durw) : 0
+      // Reações humanas na rodada com Watchdog (tempo entre a queda e o toque da pessoa).
+      const reac = Object.entries(j.reacoes ?? {})
+      const reacMs = reac.map(([, v]) => v)
+      const melhor = reac.length ? reac.reduce((a, b) => (b[1] < a[1] ? b : a)) : null
+      const mediaMs = reacMs.length ? reacMs.reduce((a, b) => a + b, 0) / reacMs.length : 0
       corpo = (
         <div className="main">
           {comeca ? (
@@ -116,15 +126,27 @@ function Telao() {
             {r1 && (
               <div className="num">
                 <small>Sem Watchdog</small>
-                <b>{s1}</b>
-                <em>s fora do ar em {Math.round(r1.dur / 1000)} s de jogo</em>
+                <b>{p1}%</b>
+                <em>do tempo fora do ar ({s1} s em {Math.round(r1.dur / 1000)} s de jogo)</em>
               </div>
             )}
             {modo === 'wd' && estado.wd && (
               <div className="num">
                 <small>Com Watchdog</small>
-                <b>{s2}</b>
-                <em>s fora do ar em {Math.round(estado.wd.dur / 1000)} s de jogo</em>
+                <b>{p2}%</b>
+                <em>do tempo fora do ar ({s2} s em {Math.round(estado.wd.dur / 1000)} s de jogo)</em>
+              </div>
+            )}
+            {modo === 'wd' && (
+              <div className="num">
+                <small>Tempo para levantar uma queda</small>
+                <b>{(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s</b>
+                <em>
+                  Watchdog.{' '}
+                  {melhor
+                    ? `Melhor humano: ${(melhor[1] / 1000).toFixed(1).replace('.', ',')} s (${nomes.get(melhor[0].split(':').slice(1).join(':')) ?? 'alguém'}). Média humana: ${(mediaMs / 1000).toFixed(1).replace('.', ',')} s`
+                    : 'Humanos: aguardando toques'}
+                </em>
               </div>
             )}
           </div>

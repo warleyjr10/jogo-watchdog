@@ -9,8 +9,8 @@ export const NOME: Record<Svc, string> = { gw: 'Gateway', me: 'Medições', re: 
 
 export const DUR_R1 = 45_000
 export const DUR_WD = 30_000
-/** Tempo que o Watchdog leva para recuperar um serviço (valor ilustrativo da brincadeira). */
-export const CONSERTO_WD = 1_500
+/** Tempo que o Watchdog leva para recuperar um serviço (valor ilustrativo da brincadeira, bem mais rápido que uma pessoa). */
+export const CONSERTO_WD = 250
 export const CONTAGEM = 3_000
 
 export type Evento = { i: number; s: Svc; at: number }
@@ -19,7 +19,10 @@ export type Estagio = 'lobby' | 'r1' | 'wd' | 'end'
 export type Estado = { estagio: Estagio; r1?: Rodada; wd?: Rodada }
 export type Tap = { p: string; t: number; pts: number }
 export type Jogador = { id: string; nome: string; pontos: number }
-export type Jogo = { agora: number; estado: Estado; jogadores: Jogador[]; taps: Record<string, Tap>; armazenamento: string; online: number; hostLivre: boolean }
+export type Jogo = { agora: number; estado: Estado; jogadores: Jogador[]; taps: Record<string, Tap>; reacoes: Record<string, number>; armazenamento: string; online: number; hostLivre: boolean }
+
+/** Chave do tempo de reação de um jogador a uma queda na rodada com Watchdog (valor em ms). */
+export const chaveReacao = (i: number, jogador: string) => `${i}:${jogador}`
 
 export function gerarEventos(dur: number): Evento[] {
   const ids: Svc[] = ['gw', 'me', 're', 'pl']

@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const agora = Date.now()
   const b = await lerBruto(true)
   const atual = estadoDe(b)
-  const zerarPlacar = () => s.hdel(H, Object.keys(b).filter((k) => k.startsWith('p:') || k.startsWith('t:')))
+  const zerarPlacar = () => s.hdel(H, Object.keys(b).filter((k) => k.startsWith('p:') || k.startsWith('t:') || k.startsWith('w:')))
   switch (p.data.acao) {
     case 'reset':
       await s.del(H)
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       await gravarEstado({ estagio: 'r1', r1: { t0: agora + CONTAGEM, dur: DUR_R1, eventos: gerarEventos(DUR_R1) } })
       break
     case 'wd':
+      await s.hdel(H, Object.keys(b).filter((k) => k.startsWith('w:')))
       await gravarEstado({ ...atual, estagio: 'wd', wd: { t0: agora + CONTAGEM, dur: DUR_WD, eventos: gerarEventos(DUR_WD) } })
       break
     case 'end':

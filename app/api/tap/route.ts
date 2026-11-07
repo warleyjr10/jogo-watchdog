@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ok, erro } from '@/lib/api'
 import { getStore } from '@/lib/store'
 import { H, lerBruto, estadoDe, invalidar } from '@/lib/jogo-servidor'
-import { chaveTap, type Tap } from '@/lib/game'
+import { chaveReacao, chaveTap, type Tap } from '@/lib/game'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +25,18 @@ export async function POST(req: NextRequest) {
   const estado = estadoDe(b)
   const r = estado.r1
   const agora = Date.now()
+  // Rodada com Watchdog: a pessoa também toca, só para medir o tempo de reação dela contra o do Watchdog (sem pontos).
+  if (estado.estagio === 'wd' && estado.wd) {
+    const relw = agora - estado.wd.t0
+    if (relw < 0 || relw > estado.wd.dur) return ok({ resultado: 'fora' as const })
+    const pendw = estado.wd.eventos.filter((e) => e.s === p.data.s && e.at <= relw && b[`w:${chaveReacao(e.i, p.data.id)}`] === undefined)
+    if (pendw.length === 0) return ok({ resultado: 'fora' as const })
+    const ev = pendw[0]
+    const ms = relw - ev.at
+    await store.hsetnx(H, `w:${chaveReacao(ev.i, p.data.id)}`, String(ms))
+    invalidar()
+    return ok({ resultado: 'wd' as const, ms })
+  }
   if (estado.estagio !== 'r1' || !r) return ok({ resultado: 'fora' as const })
   const rel = agora - r.t0
   if (rel < 0 || rel > r.dur) return ok({ resultado: 'fora' as const })

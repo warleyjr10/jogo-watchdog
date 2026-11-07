@@ -44,6 +44,7 @@ export function montarJogo(b: Record<string, string>, armazenamento: string): Jo
   const agora = Date.now()
   const jogadores: Jogador[] = []
   const taps: Record<string, Tap> = {}
+  const reacoes: Record<string, number> = {}
   let online = 0
   for (const [k, v] of Object.entries(b)) {
     if (k.startsWith('n:')) {
@@ -55,9 +56,10 @@ export function montarJogo(b: Record<string, string>, armazenamento: string): Jo
       } catch {
         /* ignora registro quebrado */
       }
-    } else if (k.startsWith('v:') && agora - Number(v) < JANELA_ONLINE) online++
+    } else if (k.startsWith('w:')) reacoes[k.slice(2)] = Number(v)
+    else if (k.startsWith('v:') && agora - Number(v) < JANELA_ONLINE) online++
   }
-  return { agora, estado: estadoDe(b), jogadores, taps, armazenamento, online, hostLivre: !process.env.HOST_KEY }
+  return { agora, estado: estadoDe(b), jogadores, taps, reacoes, armazenamento, online, hostLivre: !process.env.HOST_KEY }
 }
 
 export async function gravarEstado(e: Estado) {

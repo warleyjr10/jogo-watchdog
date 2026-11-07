@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useJogo } from '@/lib/useJogo'
 import { usePresenca } from '@/lib/usePresenca'
-import { SERVICOS, NOME, chaveTap, foraDoAr, type Svc, type Tap } from '@/lib/game'
+import { SERVICOS, NOME, CONSERTO_WD, chaveReacao, chaveTap, foraDoAr, type Svc, type Tap } from '@/lib/game'
 
 const KEY = 'congresso-jogo-participante'
 
 // Celular: consulta a cada 1 s só durante a rodada em que se toca; nas outras fases, a cada 2,5 s.
-const intervaloParticipante = (j: { estado: { estagio: string } } | null) => (j?.estado.estagio === 'r1' ? 1000 : 2500)
+const intervaloParticipante = (j: { estado: { estagio: string } } | null) => (j?.estado.estagio === 'r1' || j?.estado.estagio === 'wd' ? 1000 : 2500)
 
 function novoId(): string {
   const a = new Uint8Array(12)
@@ -23,6 +23,7 @@ export default function Participante() {
   const [toast, setToast] = useState('')
   const toastAte = useRef(0)
   const [locais, setLocais] = useState<Record<string, Tap>>({})
+  const [locaisWd, setLocaisWd] = useState<Record<string, number>>({})
   const { jogo, agora, recarregar } = useJogo(intervaloParticipante)
   usePresenca(id)
 
@@ -77,6 +78,10 @@ export default function Participante() {
   useEffect(() => {
     setLocais({})
   }, [t0r1])
+  const t0wd = jogo?.estado.wd?.t0
+  useEffect(() => {
+    setLocaisWd({})
+  }, [t0wd])
 
   // Marca na hora, só neste celular, o serviço que acabou de ser levantado (o servidor confirma na próxima consulta).
   function marcarLocal(s: Svc) {
@@ -94,14 +99,23 @@ export default function Participante() {
   async function tocar(s: Svc) {
     try {
       const r = await fetch('/api/tap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, s }) })
-      const j = (await r.json()) as { ok: boolean; data?: { resultado: string; pts?: number } }
+      const j = (await r.json()) as { ok: boolean; data?: { resultado: string; pts?: number; ms?: number } }
       const res = j.data?.resultado
       if (!j.ok) avisar('Não deu certo, toque de novo')
       else if (res === 'ok') {
         marcarLocal(s)
         avisar(`+${j.data?.pts}! ${NOME[s]} de volta`)
       }
-      else if (res === 'penal') avisar('-5: esse serviço está no ar')
+      else if (res === 'wd') {
+        const ms = j.data?.ms ?? 0
+        const w = jogo?.estado.wd
+        if (w) {
+          const rel = agora() - w.t0
+          const e = w.eventos.find((x) => x.s === s && x.at <= rel && !locaisWd[chaveReacao(x.i, id)] && jogo?.reacoes[chaveReacao(x.i, id)] === undefined)
+          if (e) setLocaisWd((p) => ({ ...p, [chaveReacao(e.i, id)]: ms }))
+        }
+        avisar(`Você: ${(ms / 1000).toFixed(1).replace('.', ',')} s. Watchdog: ${(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s`)
+      } else if (res === 'penal') avisar('-5: esse serviço está no ar')
       else if (res === 'perdeu') {
         marcarLocal(s)
         avisar('Outra pessoa foi mais rápida')
@@ -207,23 +221,36 @@ export default function Participante() {
 
   if (estado.estagio === 'wd' && estado.wd) {
     const relw = t - estado.wd.t0
-    const foraw = foraDoAr('wd', estado.wd, jogo.taps, Math.max(0, relw))
+    // Aqui o celular mostra o ponto de vista de quem vigia na mão: o serviço fica vermelho até a pessoa tocar.
+    // O telão mostra o Watchdog, que levanta tudo em uma fração de segundo.
+    const foraw: Partial<Record<Svc, number>> = {}
+    if (relw >= 0)
+      for (const e of estado.wd.eventos) {
+        if (e.at > relw) continue
+        const k = chaveReacao(e.i, id)
+        if (locaisWd[k] === undefined && jogo.reacoes[k] === undefined && foraw[e.s] === undefined) foraw[e.s] = e.at
+      }
     return (
       <main className="pg">
         {cab}
-        <h2>Agora o Watchdog assume</h2>
-        <p className="s">Ninguém precisa tocar em nada: o Watchdog levanta os serviços sozinho. Olhe também para o telão.</p>
+        <h2>Agora com Watchdog</h2>
+        <p className="s">Tente levantar os serviços na mão como antes. Olhe o telão: o Watchdog levanta sozinho em {(CONSERTO_WD / 1000).toFixed(2).replace('.', ',')} s. Sem pontos nesta rodada, é só para comparar.</p>
+        <div className="pill">
+          <span>Tempo</span>
+          <b>{Math.max(0, Math.ceil((estado.wd.dur - relw) / 1000))} s</b>
+        </div>
         <div className="grid2">
           {SERVICOS.map((s) => {
-            const down = relw >= 0 && foraw[s.id] !== undefined
+            const down = foraw[s.id] !== undefined
             return (
-              <div key={s.id} className={`sv ${down ? 'down' : 'ok'}`} style={{ cursor: 'default' }}>
+              <button key={s.id} className={`sv ${down ? 'down' : 'ok'}`} onClick={() => tocar(s.id)}>
                 <strong>{s.n}</strong>
-                <span>{down ? 'CAIU: o Watchdog está recuperando' : 'No ar'}</span>
-              </div>
+                <span>{down ? 'CAIU: toque para levantar' : 'No ar'}</span>
+              </button>
             )
           })}
         </div>
+        <div className="toast">{toast}</div>
       </main>
     )
   }
