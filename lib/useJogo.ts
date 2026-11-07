@@ -36,7 +36,7 @@ export function useJogo(intervaloPara: (j: Jogo | null) => number) {
       if (vivo) t = setTimeout(ciclo, intervaloPara(ref.current))
     }
     ciclo()
-    const b = setInterval(() => setTick((x) => x + 1), 250)
+    const b = setInterval(() => setTick((x) => x + 1), 100)
     return () => {
       vivo = false
       clearTimeout(t)
